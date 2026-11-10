@@ -7,8 +7,8 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface BookDao {
-    @Query("SELECT * FROM books ORDER BY createdAt DESC")
-    fun observeBooks(): Flow<List<Book>>
+    @Query("SELECT id, title, author, LENGTH(content) AS contentLength, progressChars, createdAt FROM books ORDER BY createdAt DESC")
+    fun observeBooks(): Flow<List<BookSummary>>
 
     @Insert
     suspend fun insert(book: Book): Long

@@ -1,6 +1,9 @@
 package com.sawtiyat.app
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -27,13 +30,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.sawtiyat.app.audio.SpeechService
 import com.sawtiyat.app.data.AppDatabase
 import com.sawtiyat.app.data.Book
+import com.sawtiyat.app.data.BookSummary
 import com.sawtiyat.app.importer.DocumentImporter
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private val Ink = Color(0xFF171020)
 private val Panel = Color(0xFF241A30)
@@ -55,12 +62,12 @@ class MainActivity : ComponentActivity() {
             ) {
                 SawtiyatScreen(
                     dao = db.bookDao(),
-                    onPlay = { book ->
+                    onPlay = { book, rate ->
                         val intent = Intent(this, SpeechService::class.java).apply {
                             action = SpeechService.ACTION_PLAY
                             putExtra(SpeechService.EXTRA_BOOK_ID, book.id)
-                            putExtra(SpeechService.EXTRA_TEXT, book.content)
                             putExtra(SpeechService.EXTRA_START, book.progressChars)
+                            putExtra(SpeechService.EXTRA_RATE, rate)
                         }
                         androidx.core.content.ContextCompat.startForegroundService(this, intent)
                     }
@@ -73,22 +80,42 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun SawtiyatScreen(
     dao: com.sawtiyat.app.data.BookDao,
-    onPlay: (Book) -> Unit
+    onPlay: (BookSummary, Float) -> Unit
 ) {
     val context = LocalContext.current
     val books by dao.observeBooks().collectAsStateWithLifecycle(initialValue = emptyList())
     var showTextDialog by remember { mutableStateOf(false) }
     var textTitle by remember { mutableStateOf("") }
     var textBody by remember { mutableStateOf("") }
-    var selectedBook by remember { mutableStateOf<Book?>(null) }
+    var selectedBook by remember { mutableStateOf<BookSummary?>(null) }
+    var selectedRate by remember { mutableFloatStateOf(1.0f) }
+    var showRateMenu by remember { mutableStateOf(false) }
+    var pendingBookToPlay by remember { mutableStateOf<BookSummary?>(null) }
     val scope = rememberCoroutineScope()
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        pendingBookToPlay?.let { onPlay(it, selectedRate) }
+        pendingBookToPlay = null
+    }
+    val requestPlayback: (BookSummary) -> Unit = { book ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            pendingBookToPlay = book
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            onPlay(book, selectedRate)
+        }
+    }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             scope.launch {
                 runCatching {
-                    val name = DocumentImporter.displayName(context.contentResolver, uri)
-                    val text = DocumentImporter.read(context.contentResolver, uri, name)
+                    val (name, text) = withContext(Dispatchers.IO) {
+                        val name = DocumentImporter.displayName(context.contentResolver, uri)
+                        name to DocumentImporter.read(context.contentResolver, uri, name)
+                    }
                     val title = name.substringBeforeLast('.', name).ifBlank { "كتاب جديد" }
                     dao.insert(Book(title = title, content = text))
                 }.onFailure {
@@ -119,6 +146,19 @@ private fun SawtiyatScreen(
                     Text("مكتبتك التي تقرأ لك", color = Cream.copy(alpha = .72f), fontSize = 13.sp)
                 }
                 Spacer(Modifier.weight(1f))
+                Box {
+                    TextButton(onClick = { showRateMenu = true }) {
+                        Text("${selectedRate}×", color = Gold)
+                    }
+                    DropdownMenu(expanded = showRateMenu, onDismissRequest = { showRateMenu = false }) {
+                        listOf(0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f).forEach { rate ->
+                            DropdownMenuItem(
+                                text = { Text("${rate}×") },
+                                onClick = { selectedRate = rate; showRateMenu = false }
+                            )
+                        }
+                    }
+                }
                 TextButton(onClick = { importLauncher.launch(arrayOf("text/plain", "application/pdf", "application/epub+zip", "*/*")) }) {
                     Text("استيراد ملف", color = Gold)
                 }
@@ -164,11 +204,11 @@ private fun SawtiyatScreen(
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(book.title, color = Cream, fontWeight = FontWeight.Bold, maxLines = 2)
-                                    Text("${book.content.length} حرف · ${book.author.ifBlank { "مؤلف غير محدد" }}", color = Cream.copy(alpha = .6f), fontSize = 12.sp)
-                                    val progress = if (book.content.isNotEmpty()) book.progressChars.toFloat() / book.content.length else 0f
+                                    Text("${book.contentLength} حرف · ${book.author.ifBlank { "مؤلف غير محدد" }}", color = Cream.copy(alpha = .6f), fontSize = 12.sp)
+                                    val progress = if (book.contentLength > 0) book.progressChars.toFloat() / book.contentLength else 0f
                                     LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, color = Gold, trackColor = Ink, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
                                 }
-                                IconButton(onClick = { onPlay(book) }) {
+                                IconButton(onClick = { requestPlayback(book) }) {
                                     Icon(Icons.Default.PlayArrow, "استماع", tint = Gold, modifier = Modifier.size(30.dp))
                                 }
                                 IconButton(onClick = { selectedBook = book }) {

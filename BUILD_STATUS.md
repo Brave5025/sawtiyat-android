@@ -1,6 +1,10 @@
-# Build status
+# حالة البناء — 0.2.0
 
-- Source scaffold created in this workspace.
-- Android SDK/Gradle are not installed in the current execution container, so no APK has been compiled or device-tested here.
-- GitHub Actions workflow is included to build a Debug APK after the project is pushed to GitHub.
-- The current app is an initial functional foundation; it does not yet satisfy every requirement in the full product specification.
+- نجح البناء النظيف محليًا باستخدام Gradle 8.9 وJDK 17 وAndroid SDK Platform 35.
+- نجحت مهمة `testDebugUnitTest`: ستة اختبارات لمعالج النص العربي، دون إخفاقات.
+- ناتج APK Debug: `app/build/outputs/apk/debug/app-debug.apk`، وموقّع تلقائيًا بمفتاح Debug.
+- لم يُختبر التطبيق على هاتف Android فعلي أو محاكي ضمن هذه البيئة.
+- القراءة تعتمد Android TextToSpeech والصوت العربي المتوفر على الجهاز؛ لا يتضمن التطبيق نموذج TTS عربيًا مستقلًا.
+- تحويل الأعداد قاعدة محافظة غير سياقية، ولا يثبت وحده جودة النطق أو المطابقة النحوية.
+- لا يزال OCR العربي، ودعم نموذج محلي مستقل، واختبارات الاستماع البشرية، وMediaSession/شاشة القفل، والنسخ الاحتياطي والمزامنة الدقيقة غير منجزة.
+- يتضمن المستودع GitHub Actions لبناء APK Debug تلقائيًا.
